@@ -3,7 +3,7 @@ A python package that translates an AnnData single cell object from scanpy with 
 
 # Why?
 Many people just uppercase a mouse gene symbol to get the human ortholog in scRNA-seq data. This works in most cases, but fails for some.
-For example, there is no Cd8b gene in mice since the correct mouse ortholog to the human gene CD8B is Cd8b1. The gene CD8B is the defining marker for CD8+ T cells
+For example, there is no Cd8b gene in mice since the correct mouse ortholog to the human gene CD8B is Cd8b1. The gene CD8B is a defining marker for CD8+ T cells
 which would get lost by just uppercasing gene symbols but is correctly retained by mapping gene symbols with mousipy.
 
 # Install
