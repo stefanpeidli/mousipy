@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import numpy as np
 import scanpy as sc
@@ -5,10 +6,10 @@ import scanpy as sc
 from tqdm import tqdm
 from scipy.sparse import csr_matrix, hstack
 
-
 # Biomart tables
-h2m_tab = pd.read_csv('src/mousipy/biomart/human_to_mouse_biomart_export.csv').set_index('Gene name')
-m2h_tab = pd.read_csv('src/mousipy/biomart/mouse_to_human_biomart_export.csv').set_index('Gene name')
+path = os.path.abspath(os.path.dirname(__file__))
+h2m_tab = pd.read_csv(os.path.join(path, './biomart/human_to_mouse_biomart_export.csv')).set_index('Gene name')
+m2h_tab = pd.read_csv(os.path.join(path, './biomart/mouse_to_human_biomart_export.csv')).set_index('Gene name')
 
 def check_orthologs(var_names, tab=None):
     """Check for orthologs from a list of gene symbols in a biomart table.
