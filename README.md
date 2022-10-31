@@ -1,9 +1,10 @@
+![GitHub Workflow Status](https://img.shields.io/github/workflow/status/stefanpeidli/mousipy/Python%20package)
+![GitHub issues](https://img.shields.io/github/issues-raw/stefanpeidli/mousipy)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/mousipy?label=pip%20downloads)
+![PyPI](https://img.shields.io/pypi/v/mousipy?label=PyPI%20version)
+
 # mousipy
 A python package that translates an AnnData single cell object from scanpy with mouse gene symbols into one with human gene symbols by mapping orthologs from biomart.
-
-<!---
-![example workflow](https://github.com/stefanpeidli/mousipy/.github/workflows/python-package.yml/badge.svg)
--->
 
 
 # Why?
