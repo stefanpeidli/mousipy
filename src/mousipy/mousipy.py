@@ -4,12 +4,19 @@ import numpy as np
 import scanpy as sc
 
 from tqdm import tqdm
-from scipy.sparse import csr_matrix, hstack
+from scipy.sparse import csr_matrix, hstack, issparse
 
 # Biomart tables
 path = os.path.abspath(os.path.dirname(__file__))
 h2m_tab = pd.read_csv(os.path.join(path, './biomart/human_to_mouse_biomart_export.csv')).set_index('Gene name')
 m2h_tab = pd.read_csv(os.path.join(path, './biomart/mouse_to_human_biomart_export.csv')).set_index('Gene name')
+
+def make_dense(X):
+    # robustly make an array dense
+    if issparse(X):
+        return X.A
+    else:
+        return X
 
 def check_orthologs(var_names, tab=None):
     """Check for orthologs from a list of gene symbols in a biomart table.
@@ -118,21 +125,20 @@ def translate_multiple(adata, original_data, multiple, stay_sparse=False):
     AnnData
         Updated original adata.
     """
-    from scipy.sparse import csr_matrix, hstack
-    X = adata.X.copy() if stay_sparse else adata.X.A.copy()
+    X = adata.X.copy() if stay_sparse else make_dense(adata.X).copy()
     var = adata.var.copy()
     for mgene, hgenes in tqdm(multiple.items(), leave=False):
         for hgene in hgenes:
             if hgene not in list(var.index):
                 # Add counts to new gene
-                X = np.hstack((X, original_data[:, mgene].X.A))
+                X = np.hstack((X, make_dense(original_data[:, mgene].X)))
                 var.loc[hgene] = None
                 var.loc[hgene, 'original_gene_symbol'] = 'multiple'
             else:
                 # Add counts to existing gene
                 idx = np.where(np.array(list(var.index))==hgene)[0][0]
-                X[:, [idx]] += original_data[:, mgene].X.A
-    X = X if stay_sparse else csr_matrix(X)
+                X[:, [idx]] += make_dense(original_data[:, mgene].X)
+    X = X if stay_sparse or not issparse(adata.X) else csr_matrix(X)
     return sc.AnnData(X, adata.obs, var, adata.uns, adata.obsm)
 
 def collapse_duplicate_genes(adata, stay_sparse=False):
@@ -162,7 +168,7 @@ def collapse_duplicate_genes(adata, stay_sparse=False):
         return adata
 
     idxs_to_remove = []
-    X = adata.X if stay_sparse else adata.X.A
+    X = adata.X if stay_sparse else make_dense(adata.X)
 
     for gene in tqdm(duplicated_genes, leave=False):
         idxs = np.where(index == gene)[0]
@@ -171,7 +177,7 @@ def collapse_duplicate_genes(adata, stay_sparse=False):
         # mark later entries for deletion
         idxs_to_remove += list(idxs[1:])
 
-    adata.X = X if stay_sparse else csr_matrix(X)
+    adata.X = X if stay_sparse or not issparse(adata.X) else csr_matrix(X)
     return adata[:, np.delete(np.arange(adata.n_vars), idxs_to_remove)].copy()
 
 def translate(adata, stay_sparse=False):
@@ -196,8 +202,3 @@ def translate(adata, stay_sparse=False):
     bdata = translate_multiple(bdata, adata, multiple, stay_sparse=stay_sparse)
     bdata = collapse_duplicate_genes(bdata, stay_sparse=stay_sparse)
     return bdata
-
-def test():
-    import scvelo as scv
-    adata = scv.datasets.pancreas()
-    humanized_pancreas = translate(adata)
