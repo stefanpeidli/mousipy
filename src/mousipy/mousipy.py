@@ -5,6 +5,7 @@ import scanpy as sc
 
 from tqdm import tqdm
 from scipy.sparse import csr_matrix, hstack, issparse
+from re import search
 
 # Biomart tables
 path = os.path.abspath(os.path.dirname(__file__))
@@ -18,14 +19,53 @@ def make_dense(X):
     else:
         return X
 
-def check_orthologs(var_names, tab=None):
+def identify_format_and_organism(txt):
+    '''Identify the format and organism of a gene symbol.
+    Currently only supports mouse and human genes.
+    Parameters
+    ----------
+    txt : str
+        A gene string.
+
+    Returns
+    -------
+    format: str
+        Either 'Ensembl' or 'Symbol'.
+    organism: str
+        Either 'Mouse' or 'Human'.
+    '''
+    if search('ENSG[0-9]{11}', txt):
+        format = 'Ensembl'
+        organism = 'Human'
+    elif search('ENSMUSG[0-9]{11}', txt):
+        format = 'Ensembl'
+        organism = 'Mouse'
+    else:
+        format = 'Symbol'
+        if txt.isupper():  # probably not very robust
+            organism = 'Human'
+        else:
+            organism = 'Mouse'
+    return format, organism
+
+def check_orthologs(var_names, target=None, tab=None, verbose=False):
     """Check for orthologs from a list of gene symbols in a biomart table.
+    In essence, this function goes through the list of input genes and checks
+    if they have a single ortholog in the table. If they have multiple orthologs,
+    no ortholog, or are not found in the table, they are added to the respective
+    return dictionary or list.
+    
     Parameters
     ----------
     var_names : list or list-like
         A list of (mouse) gene symbols.
+    target : str (either 'Ensembl' or 'Symbol') or None, optional
+        The target gene names that will be translated to. 
+        If None, translates Ensembl to Ensembl and Symbol to Symbol.
     tab :
-        If True, forbids this function to locally densify the count matrix.
+        A biomart table. If None, the default mouse-to-human table is used.
+    verbose : bool, optional
+        Whether to print the number progress of the translation. The default is False.
 
     Returns
     -------
@@ -38,16 +78,30 @@ def check_orthologs(var_names, tab=None):
     list
         List of those input genes not found in the table
     """
-    tab = tab if isinstance(tab, pd.DataFrame) else m2h_tab
+    if target not in ['Ensembl', 'Symbol', None]:
+        raise ValueError('target must be either "Ensembl", "Symbol", or None')
+    
+    input_format, input_organism = identify_format_and_organism(var_names[0])
+    output_organism = 'Human' if input_organism == 'Mouse' else 'Mouse'
+    if not isinstance(tab, pd.DataFrame):
+        tab = m2h_tab if input_organism == 'Mouse' else h2m_tab
+    if input_format == 'Ensembl':
+        tab = tab.reset_index().set_index('Gene stable ID')
+        target = 'Ensembl' if target is None else target
+    else:
+        # tab is already set to gene symbols as index
+        target = 'Symbol' if target is None else target
+    target_key = f'{output_organism} gene stable ID' if target=='Ensembl' else f'{output_organism} gene name'
 
-    direct = {}
-    multiple = {}
-    no_hit = []
-    no_index = []
-    for gene in tqdm(var_names, leave=False):
+    direct = {}  # genes with a single ortholog
+    multiple = {}  # genes with multiple orthologs
+    no_hit = []  # genes with no ortholog
+    no_index = []  # genes not in the index of the table
+    fct = tqdm if verbose else lambda x: x
+    for gene in fct(var_names):
         if gene in tab.index:
             # gene found in index of the table
-            x = tab['Human gene name'].loc[gene]
+            x = tab[target_key].loc[gene]
             if isinstance(x, pd.Series):
                 # multiple hits
                 vals = pd.unique(x.values)
@@ -109,7 +163,7 @@ def translate_direct(adata, direct, no_index):
     ndata.var_names = list(direct.values()) + [m.upper() for m in guess_genes]
     return ndata
 
-def translate_multiple(adata, original_data, multiple, stay_sparse=False):
+def translate_multiple(adata, original_data, multiple, stay_sparse=False, verbose=False):
     """Adds the counts of multiple-hit genes to ALL their orthologs.
     Parameters
     ----------
@@ -127,7 +181,8 @@ def translate_multiple(adata, original_data, multiple, stay_sparse=False):
     """
     X = adata.X.copy() if stay_sparse else make_dense(adata.X).copy()
     var = adata.var.copy()
-    for mgene, hgenes in tqdm(multiple.items(), leave=False):
+    fct = tqdm if verbose else lambda x: x
+    for mgene, hgenes in fct(multiple.items()):
         for hgene in hgenes:
             if hgene not in list(var.index):
                 # Add counts to new gene
@@ -180,12 +235,19 @@ def collapse_duplicate_genes(adata, stay_sparse=False):
     adata.X = X if stay_sparse or not issparse(adata.X) else csr_matrix(X)
     return adata[:, np.delete(np.arange(adata.n_vars), idxs_to_remove)].copy()
 
-def translate(adata, stay_sparse=False):
-    """Translates adata.var from mouse to human gene symbols using orthologs from biomart.
+def translate(adata, target=None, stay_sparse=False, verbose=True):
+    """Translates adata.var between mouse and human using orthologs from biomart.
+    Accepts either Ensembl or Symbol gene names as adata.var_names and can translate
+    to either Ensembl or Symbol gene names. If the target is None, translates
+    to the same gene name type as the input.
+    
     Parameters
     ----------
     adata : AnnData object
         Single cell object to translate.
+    target : str (either 'Ensembl' or 'Symbol') or None, optional
+        The target gene names that will be translated to. 
+        If None, translates Ensembl to Ensembl and Symbol to Symbol.
     stay_sparse :
         If True, forbids this function to locally densify the count matrix.
 
@@ -194,11 +256,16 @@ def translate(adata, stay_sparse=False):
     AnnData object
         The adata with translated and unique features.
     """
-    direct, multiple, no_hit, no_index = check_orthologs(adata.var_names, tab=m2h_tab)
+    direct, multiple, no_hit, no_index = check_orthologs(adata.var_names, tab=None, target=target, verbose=verbose)
+    if verbose:
+        print('Found direct orthologs for {} genes.'.format(len(direct)))
+        print('Found multiple orthologs for {} genes.'.format(len(multiple)))
+        print('Found no orthologs for {} genes.'.format(len(no_hit)))
+        print('Found no index in biomart for {} genes.'.format(len(no_index)))
 
     # for those with an entry but no ortholog we assume that there really is no known ortholog
     # which means we ignore genes in m2h_no_hit
     bdata = translate_direct(adata, direct, no_index)
-    bdata = translate_multiple(bdata, adata, multiple, stay_sparse=stay_sparse)
+    bdata = translate_multiple(bdata, adata, multiple, stay_sparse=stay_sparse, verbose=verbose)
     bdata = collapse_duplicate_genes(bdata, stay_sparse=stay_sparse)
     return bdata
