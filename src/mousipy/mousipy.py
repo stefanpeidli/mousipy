@@ -93,6 +93,7 @@ def check_orthologs(var_names, target=None, tab=None, verbose=False):
         target = 'Symbol' if target is None else target
     target_key = f'{output_organism} gene stable ID' if target=='Ensembl' else f'{output_organism} gene name'
 
+    # very slow, might want to speed up. Maybe with a lookup table?
     direct = {}  # genes with a single ortholog
     multiple = {}  # genes with multiple orthologs
     no_hit = []  # genes with no ortholog
