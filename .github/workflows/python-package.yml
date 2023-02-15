@@ -39,6 +39,8 @@ jobs:
       run: |
         pip install pytest
         pip install coverage
-        pip install scvelo
+        pip install -U matplotlib=3.6.6  # Scanpy bug #2411
+        pip install scanpy
+        
         coverage run -m pytest src/tests/main_test.py --doctest-modules --junitxml=junit/test-results.xml
         
