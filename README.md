@@ -1,5 +1,5 @@
 <!---![GitHub Workflow Status](https://img.shields.io/github/workflow/status/stefanpeidli/mousipy/Python%20package)--->
-![GitHub issues](https://img.shields.io/github/issues-raw/stefanpeidli/mousipy)
+<!---![GitHub issues](https://img.shields.io/github/issues-raw/stefanpeidli/mousipy)--->
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/mousipy?label=pip%20downloads)
 ![PyPI](https://img.shields.io/pypi/v/mousipy?label=PyPI%20version)
 
