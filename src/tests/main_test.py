@@ -5,7 +5,7 @@ def test_pancreas():
     # download mouse scRNA-seq dataset
     url_datadir = "https://github.com/theislab/scvelo_notebooks/raw/master/"
     url = f"{url_datadir}data/Pancreas/endocrinogenesis_day15.h5ad"
-    adata = read_h5ad("data/Pancreas/endocrinogenesis_day15.h5ad", backup_url=url, sparse=True, cache=True)
+    adata = read("data/Pancreas/endocrinogenesis_day15.h5ad", backup_url=url, sparse=True, cache=True)
     adata.var_names_make_unique()
     
     humanized_adata = translate(adata)
