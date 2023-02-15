@@ -1,10 +1,10 @@
 import os
 import pandas as pd
 import numpy as np
-import scanpy as sc
 
+from anndata import AnnData
 from tqdm import tqdm
-from scipy.sparse import csr_matrix, hstack, issparse
+from scipy.sparse import csr_matrix, issparse
 from re import search
 
 # Biomart tables
@@ -195,7 +195,7 @@ def translate_multiple(adata, original_data, multiple, stay_sparse=False, verbos
                 idx = np.where(np.array(list(var.index))==hgene)[0][0]
                 X[:, [idx]] += make_dense(original_data[:, mgene].X)
     X = X if stay_sparse or not issparse(adata.X) else csr_matrix(X)
-    return sc.AnnData(X, adata.obs, var, adata.uns, adata.obsm)
+    return AnnData(X, adata.obs, var, adata.uns, adata.obsm)
 
 def collapse_duplicate_genes(adata, stay_sparse=False):
     """Collapse duplicate genes by summing up counts to unique entries.
