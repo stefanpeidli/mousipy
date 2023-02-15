@@ -35,3 +35,7 @@ First, for all mouse gene symbols in adata.var_names we check if there is an ort
 
 # What is an ortholog?
 Two genes in different species are called orthologs if they share a common ancestry. At some point in the past these genes must have underwent a specification event.
+
+# Does it make a difference?
+TODO
+![A delicious double pie plot should be here.](docs/img.png?raw=true "Double pie")
