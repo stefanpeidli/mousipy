@@ -1,16 +1,21 @@
 import os
-import pandas as pd
-import numpy as np
-
-from anndata import AnnData
-from tqdm import tqdm
-from scipy.sparse import csr_matrix, issparse
 from re import search
+
+import numpy as np
+import pandas as pd
+from anndata import AnnData
+from scipy.sparse import csr_matrix, issparse
+from tqdm import tqdm
 
 # Biomart tables
 path = os.path.abspath(os.path.dirname(__file__))
-h2m_tab = pd.read_csv(os.path.join(path, './biomart/human_to_mouse_biomart_export.csv')).set_index('Gene name')
-m2h_tab = pd.read_csv(os.path.join(path, './biomart/mouse_to_human_biomart_export.csv')).set_index('Gene name')
+h2m_tab_biomart = pd.read_csv(os.path.join(path, './biomart/human_to_mouse.csv')).set_index('Gene name')
+m2h_tab_biomart = pd.read_csv(os.path.join(path, './biomart/mouse_to_human.csv')).set_index('Gene name')
+
+# HCOP tables
+h2m_tab_hcop = pd.read_csv(os.path.join(path, './hcop/human_to_mouse.csv')).set_index('Gene name')
+m2h_tab_hcop = pd.read_csv(os.path.join(path, './hcop/mouse_to_human.csv')).set_index('Gene name')
+
 
 def make_dense(X):
     # robustly make an array dense
@@ -18,6 +23,7 @@ def make_dense(X):
         return X.A
     else:
         return X
+
 
 def identify_format_and_organism(txt):
     '''Identify the format and organism of a gene symbol.
@@ -48,7 +54,8 @@ def identify_format_and_organism(txt):
             organism = 'Mouse'
     return format, organism
 
-def check_orthologs(var_names, target=None, tab=None, verbose=False):
+
+def check_orthologs(var_names, target=None, tab=None, verbose=False, source='HCOP'):
     """Check for orthologs from a list of gene symbols in a biomart table.
     In essence, this function goes through the list of input genes and checks
     if they have a single ortholog in the table. If they have multiple orthologs,
@@ -80,7 +87,16 @@ def check_orthologs(var_names, target=None, tab=None, verbose=False):
     """
     if target not in ['Ensembl', 'Symbol', None]:
         raise ValueError('target must be either "Ensembl", "Symbol", or None')
-    
+
+    if source == 'HCOP':
+        h2m_tab = h2m_tab_hcop
+        m2h_tab = m2h_tab_hcop
+    elif source == 'biomart':
+        h2m_tab = h2m_tab_biomart
+        m2h_tab = m2h_tab_biomart
+    else:
+        raise ValueError('source must be either "HCOP" or "biomart"')
+
     input_format, input_organism = identify_format_and_organism(var_names[0])
     output_organism = 'Human' if input_organism == 'Mouse' else 'Mouse'
     if not isinstance(tab, pd.DataFrame):
@@ -91,7 +107,7 @@ def check_orthologs(var_names, target=None, tab=None, verbose=False):
     else:
         # tab is already set to gene symbols as index
         target = 'Symbol' if target is None else target
-    target_key = f'{output_organism} gene stable ID' if target=='Ensembl' else f'{output_organism} gene name'
+    target_key = f'{output_organism} gene stable ID' if target == 'Ensembl' else f'{output_organism} gene name'
 
     # very slow, might want to speed up. Maybe with a lookup table?
     direct = {}  # genes with a single ortholog
@@ -107,10 +123,10 @@ def check_orthologs(var_names, target=None, tab=None, verbose=False):
                 # multiple hits
                 vals = pd.unique(x.values)
                 vals = vals[~pd.isna(vals)]
-                if len(vals)>1:
+                if len(vals) > 1:
                     # multiple actual hits
-                    multiple[gene]=vals
-                elif len(vals)==1:
+                    multiple[gene] = vals
+                elif len(vals) == 1:
                     # one actual hit
                     direct[gene] = vals[0]
                 else:
@@ -126,6 +142,7 @@ def check_orthologs(var_names, target=None, tab=None, verbose=False):
             # gene not in index
             no_index.append(gene)
     return direct, multiple, no_hit, no_index
+
 
 def translate_direct(adata, direct, no_index):
     """Translate all direct hit genes into their orthologs.
@@ -152,17 +169,18 @@ def translate_direct(adata, direct, no_index):
         Updated original adata.
     """
     guess_genes = [
-    x for x in no_index if
-    x[:2] != 'Gm' and
-    'Rik' not in x and
-    x[:2] != 'RP' and
-    'Hist' not in x and
-    'Olfr' not in x and
-    '.' not in x]
+        x for x in no_index if
+        x[:2] != 'Gm' and
+        'Rik' not in x and
+        x[:2] != 'RP' and
+        'Hist' not in x and
+        'Olfr' not in x and
+        '.' not in x]
     ndata = adata[:, list(direct.keys()) + guess_genes].copy()
     ndata.var['original_gene_symbol'] = list(direct.keys()) + guess_genes
     ndata.var_names = list(direct.values()) + [m.upper() for m in guess_genes]
     return ndata
+
 
 def translate_multiple(adata, original_data, multiple, stay_sparse=False, verbose=False):
     """Adds the counts of multiple-hit genes to ALL their orthologs.
@@ -192,10 +210,11 @@ def translate_multiple(adata, original_data, multiple, stay_sparse=False, verbos
                 var.loc[hgene, 'original_gene_symbol'] = 'multiple'
             else:
                 # Add counts to existing gene
-                idx = np.where(np.array(list(var.index))==hgene)[0][0]
+                idx = np.where(np.array(list(var.index)) == hgene)[0][0]
                 X[:, [idx]] += make_dense(original_data[:, mgene].X)
     X = X if stay_sparse or not issparse(adata.X) else csr_matrix(X)
     return AnnData(X, adata.obs, var, adata.uns, adata.obsm)
+
 
 def collapse_duplicate_genes(adata, stay_sparse=False):
     """Collapse duplicate genes by summing up counts to unique entries.
@@ -235,6 +254,7 @@ def collapse_duplicate_genes(adata, stay_sparse=False):
 
     adata.X = X if stay_sparse or not issparse(adata.X) else csr_matrix(X)
     return adata[:, np.delete(np.arange(adata.n_vars), idxs_to_remove)].copy()
+
 
 def translate(adata, target=None, stay_sparse=False, verbose=True):
     """Translates adata.var between mouse and human using orthologs from biomart.
