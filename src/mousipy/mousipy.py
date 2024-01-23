@@ -55,7 +55,7 @@ def identify_format_and_organism(txt):
     return format, organism
 
 
-def check_orthologs(var_names, target=None, tab=None, verbose=False, source='HCOP'):
+def check_orthologs(var_names, target=None, tab=None, verbose=False, source='biomart'):
     """Check for orthologs from a list of gene symbols in a biomart table.
     In essence, this function goes through the list of input genes and checks
     if they have a single ortholog in the table. If they have multiple orthologs,
