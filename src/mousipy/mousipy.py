@@ -88,10 +88,12 @@ def check_orthologs(var_names, target=None, tab=None, verbose=False, source='bio
     if target not in ['Ensembl', 'Symbol', None]:
         raise ValueError('target must be either "Ensembl", "Symbol", or None')
 
-    if source == 'HCOP':
+    source_lower = source.lower()
+
+    if source_lower == 'hcop':
         h2m_tab = h2m_tab_hcop
         m2h_tab = m2h_tab_hcop
-    elif source == 'biomart':
+    elif source_lower == 'biomart':
         h2m_tab = h2m_tab_biomart
         m2h_tab = m2h_tab_biomart
     else:
@@ -256,7 +258,7 @@ def collapse_duplicate_genes(adata, stay_sparse=False):
     return adata[:, np.delete(np.arange(adata.n_vars), idxs_to_remove)].copy()
 
 
-def translate(adata, target=None, stay_sparse=False, verbose=True):
+def translate(adata, target=None, stay_sparse=False, verbose=True, source='biomart'):
     """Translates adata.var between mouse and human using orthologs from biomart.
     Accepts either Ensembl or Symbol gene names as adata.var_names and can translate
     to either Ensembl or Symbol gene names. If the target is None, translates
@@ -277,7 +279,12 @@ def translate(adata, target=None, stay_sparse=False, verbose=True):
     AnnData object
         The adata with translated and unique features.
     """
-    direct, multiple, no_hit, no_index = check_orthologs(adata.var_names, tab=None, target=target, verbose=verbose)
+    source_lower = source.lower()
+
+    if source_lower not in ['hcop', 'biomart']:
+        raise ValueError('source must be either "HCOP" or "biomart"')
+
+    direct, multiple, no_hit, no_index = check_orthologs(adata.var_names, tab=None, target=target, verbose=verbose, source=source_lower)
     if verbose:
         print('Found direct orthologs for {} genes.'.format(len(direct)))
         print('Found multiple orthologs for {} genes.'.format(len(multiple)))
