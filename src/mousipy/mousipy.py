@@ -185,36 +185,57 @@ def translate_direct(adata, direct, no_index):
 
 
 def translate_multiple(adata, original_data, multiple, stay_sparse=False, verbose=False):
-    """Adds the counts of multiple-hit genes to ALL their orthologs.
-    Parameters
-    ----------
-    adata : AnnData
-        AnnData object to translate genes in.
-    original_data : AnnData
-        Original AnnData (before translate_direct).
-    multiple : dict
-        Dictionary of those adata genes mapping to many orthologs.
-
-    Returns
-    -------
-    AnnData
-        Updated original adata.
     """
-    X = adata.X.copy() if stay_sparse else make_dense(adata.X).copy()
+    Adds the counts of multiple-hit genes to ALL their orthologs.
+    """
     var = adata.var.copy()
-    fct = tqdm if verbose else lambda x: x
-    for mgene, hgenes in fct(multiple.items()):
-        for hgene in hgenes:
-            if hgene not in list(var.index):
-                # Add counts to new gene
-                X = np.hstack((X, make_dense(original_data[:, mgene].X)))
-                var.loc[hgene] = None
-                var.loc[hgene, 'original_gene_symbol'] = 'multiple'
-            else:
-                # Add counts to existing gene
-                idx = np.where(np.array(list(var.index)) == hgene)[0][0]
-                X[:, [idx]] += make_dense(original_data[:, mgene].X)
-    X = X if stay_sparse or not issparse(adata.X) else csr_matrix(X)
+    ortholog_indices = {gene: i for i, gene in enumerate(var.index)}
+    new_genes = []
+
+    if stay_sparse:
+        # Sparse implementation remains unchanged
+        X = adata.X.copy()
+        for mgene, hgenes in (tqdm(multiple.items()) if verbose else multiple.items()):
+            mgene_data = make_dense(original_data[:, mgene].X)
+
+            for hgene in hgenes:
+                if hgene not in ortholog_indices:
+                    new_genes.append(hgene)
+                    X = csr_matrix(np.hstack((X.toarray(), mgene_data.reshape(-1, 1))))
+                    ortholog_indices[hgene] = X.shape[1] - 1
+                else:
+                    idx = ortholog_indices[hgene]
+                    X[:, idx] += csr_matrix(mgene_data).reshape(-1, 1)
+    else:
+        # Dense implementation
+        num_new_genes = sum(1 for hgenes in multiple.values() for hgene in hgenes if hgene not in ortholog_indices)
+        X = make_dense(adata.X)
+        new_data = np.zeros((X.shape[0], X.shape[1] + num_new_genes))
+
+        new_data[:, :X.shape[1]] = X
+        next_new_gene_idx = X.shape[1]
+
+        for mgene, hgenes in (tqdm(multiple.items()) if verbose else multiple.items()):
+            mgene_data = make_dense(original_data[:, mgene].X).reshape(-1, 1)
+
+            for hgene in hgenes:
+                if hgene not in ortholog_indices:
+                    new_genes.append(hgene)
+                    new_data[:, next_new_gene_idx] = mgene_data.ravel()
+                    ortholog_indices[hgene] = next_new_gene_idx
+                    next_new_gene_idx += 1
+                else:
+                    idx = ortholog_indices[hgene]
+                    new_data[:, idx] += mgene_data.ravel()
+
+        X = new_data
+
+    # Creating new DataFrame rows for new genes
+    for hgene in new_genes:
+        new_row = pd.DataFrame({col: pd.NA for col in var.columns}, index=[hgene])
+        new_row['original_gene_symbol'] = 'multiple'
+        var = pd.concat([var, new_row])
+
     return AnnData(X, adata.obs, var, adata.uns, adata.obsm)
 
 
