@@ -130,3 +130,10 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+
+# Intellij Ignore
+.idea/
+*.iml
+*.iws
+*.ipr

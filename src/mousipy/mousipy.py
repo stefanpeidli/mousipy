@@ -1,16 +1,21 @@
 import os
-import pandas as pd
-import numpy as np
-
-from anndata import AnnData
-from tqdm import tqdm
-from scipy.sparse import csr_matrix, issparse
 from re import search
+
+import numpy as np
+import pandas as pd
+from anndata import AnnData
+from scipy.sparse import csr_matrix, issparse
+from tqdm import tqdm
 
 # Biomart tables
 path = os.path.abspath(os.path.dirname(__file__))
-h2m_tab = pd.read_csv(os.path.join(path, './biomart/human_to_mouse_biomart_export.csv')).set_index('Gene name')
-m2h_tab = pd.read_csv(os.path.join(path, './biomart/mouse_to_human_biomart_export.csv')).set_index('Gene name')
+h2m_tab_biomart = pd.read_csv(os.path.join(path, './biomart/human_to_mouse.csv')).set_index('Gene name')
+m2h_tab_biomart = pd.read_csv(os.path.join(path, './biomart/mouse_to_human.csv')).set_index('Gene name')
+
+# HCOP tables
+h2m_tab_hcop = pd.read_csv(os.path.join(path, './hcop/human_to_mouse.csv')).set_index('Gene name')
+m2h_tab_hcop = pd.read_csv(os.path.join(path, './hcop/mouse_to_human.csv')).set_index('Gene name')
+
 
 def make_dense(X):
     # robustly make an array dense
@@ -18,6 +23,7 @@ def make_dense(X):
         return X.A
     else:
         return X
+
 
 def identify_format_and_organism(txt):
     '''Identify the format and organism of a gene symbol.
@@ -48,7 +54,8 @@ def identify_format_and_organism(txt):
             organism = 'Mouse'
     return format, organism
 
-def check_orthologs(var_names, target=None, tab=None, verbose=False):
+
+def check_orthologs(var_names, target=None, tab=None, verbose=False, source='biomart'):
     """Check for orthologs from a list of gene symbols in a biomart table.
     In essence, this function goes through the list of input genes and checks
     if they have a single ortholog in the table. If they have multiple orthologs,
@@ -80,7 +87,18 @@ def check_orthologs(var_names, target=None, tab=None, verbose=False):
     """
     if target not in ['Ensembl', 'Symbol', None]:
         raise ValueError('target must be either "Ensembl", "Symbol", or None')
-    
+
+    source_lower = source.lower()
+
+    if source_lower == 'hcop':
+        h2m_tab = h2m_tab_hcop
+        m2h_tab = m2h_tab_hcop
+    elif source_lower == 'biomart':
+        h2m_tab = h2m_tab_biomart
+        m2h_tab = m2h_tab_biomart
+    else:
+        raise ValueError('source must be either "HCOP" or "biomart"')
+
     input_format, input_organism = identify_format_and_organism(var_names[0])
     output_organism = 'Human' if input_organism == 'Mouse' else 'Mouse'
     if not isinstance(tab, pd.DataFrame):
@@ -91,7 +109,7 @@ def check_orthologs(var_names, target=None, tab=None, verbose=False):
     else:
         # tab is already set to gene symbols as index
         target = 'Symbol' if target is None else target
-    target_key = f'{output_organism} gene stable ID' if target=='Ensembl' else f'{output_organism} gene name'
+    target_key = f'{output_organism} gene stable ID' if target == 'Ensembl' else f'{output_organism} gene name'
 
     # very slow, might want to speed up. Maybe with a lookup table?
     direct = {}  # genes with a single ortholog
@@ -107,10 +125,10 @@ def check_orthologs(var_names, target=None, tab=None, verbose=False):
                 # multiple hits
                 vals = pd.unique(x.values)
                 vals = vals[~pd.isna(vals)]
-                if len(vals)>1:
+                if len(vals) > 1:
                     # multiple actual hits
-                    multiple[gene]=vals
-                elif len(vals)==1:
+                    multiple[gene] = vals
+                elif len(vals) == 1:
                     # one actual hit
                     direct[gene] = vals[0]
                 else:
@@ -126,6 +144,7 @@ def check_orthologs(var_names, target=None, tab=None, verbose=False):
             # gene not in index
             no_index.append(gene)
     return direct, multiple, no_hit, no_index
+
 
 def translate_direct(adata, direct, no_index):
     """Translate all direct hit genes into their orthologs.
@@ -152,50 +171,81 @@ def translate_direct(adata, direct, no_index):
         Updated original adata.
     """
     guess_genes = [
-    x for x in no_index if
-    x[:2] != 'Gm' and
-    'Rik' not in x and
-    x[:2] != 'RP' and
-    'Hist' not in x and
-    'Olfr' not in x and
-    '.' not in x]
+        x for x in no_index if
+        x[:2] != 'Gm' and
+        'Rik' not in x and
+        x[:2] != 'RP' and
+        'Hist' not in x and
+        'Olfr' not in x and
+        '.' not in x]
     ndata = adata[:, list(direct.keys()) + guess_genes].copy()
     ndata.var['original_gene_symbol'] = list(direct.keys()) + guess_genes
     ndata.var_names = list(direct.values()) + [m.upper() for m in guess_genes]
     return ndata
 
-def translate_multiple(adata, original_data, multiple, stay_sparse=False, verbose=False):
-    """Adds the counts of multiple-hit genes to ALL their orthologs.
-    Parameters
-    ----------
-    adata : AnnData
-        AnnData object to translate genes in.
-    original_data : AnnData
-        Original AnnData (before translate_direct).
-    multiple : dict
-        Dictionary of those adata genes mapping to many orthologs.
 
-    Returns
-    -------
-    AnnData
-        Updated original adata.
+def translate_multiple(adata, original_data, multiple, stay_sparse=False, verbose=False):
     """
-    X = adata.X.copy() if stay_sparse else make_dense(adata.X).copy()
+    Adds the counts of multiple-hit genes to ALL their orthologs.
+    """
     var = adata.var.copy()
-    fct = tqdm if verbose else lambda x: x
-    for mgene, hgenes in fct(multiple.items()):
-        for hgene in hgenes:
-            if hgene not in list(var.index):
-                # Add counts to new gene
-                X = np.hstack((X, make_dense(original_data[:, mgene].X)))
-                var.loc[hgene] = None
-                var.loc[hgene, 'original_gene_symbol'] = 'multiple'
-            else:
-                # Add counts to existing gene
-                idx = np.where(np.array(list(var.index))==hgene)[0][0]
-                X[:, [idx]] += make_dense(original_data[:, mgene].X)
-    X = X if stay_sparse or not issparse(adata.X) else csr_matrix(X)
+    ortholog_indices = {gene: i for i, gene in enumerate(var.index)}
+
+    if stay_sparse:
+        # Sparse implementation remains unchanged
+        X = adata.X.copy()
+        for mgene, hgenes in (tqdm(multiple.items()) if verbose else multiple.items()):
+            mgene_data = make_dense(original_data[:, mgene].X)
+
+            for hgene in hgenes:
+                if hgene not in ortholog_indices:
+                    # Create a new DataFrame row for the new gene
+                    new_row = pd.DataFrame({col: pd.NA for col in var.columns}, index=[hgene])
+                    new_row['original_gene_symbol'] = 'multiple'
+                    var = pd.concat([var, new_row])
+
+                    X = csr_matrix(np.hstack((X.toarray(), mgene_data.reshape(-1, 1))))
+                    ortholog_indices[hgene] = X.shape[1] - 1
+                else:
+                    idx = ortholog_indices[hgene]
+                    X[:, idx] += csr_matrix(mgene_data).reshape(-1, 1)
+    else:
+        # Dense implementation
+        num_new_genes = sum(1 for hgenes in multiple.values() for hgene in hgenes if hgene not in ortholog_indices)
+        X = make_dense(adata.X)
+        new_data = np.zeros((X.shape[0], X.shape[1] + num_new_genes))
+
+        new_data[:, :X.shape[1]] = X
+        next_new_gene_idx = X.shape[1]
+
+        for mgene, hgenes in (tqdm(multiple.items()) if verbose else multiple.items()):
+            mgene_data = make_dense(original_data[:, mgene].X).reshape(-1, 1)
+
+            for hgene in hgenes:
+                if hgene not in ortholog_indices:
+                    # Create a new DataFrame row for the new gene
+                    new_row = pd.DataFrame({col: pd.NA for col in var.columns}, index=[hgene])
+                    new_row['original_gene_symbol'] = 'multiple'
+                    var = pd.concat([var, new_row])
+
+                    new_data[:, next_new_gene_idx] = mgene_data.ravel()
+                    ortholog_indices[hgene] = next_new_gene_idx
+                    next_new_gene_idx += 1
+                else:
+                    idx = ortholog_indices[hgene]
+                    new_data[:, idx] += mgene_data.ravel()
+
+        X = new_data
+
+    # Check the dimensions of X and var
+    if X.shape[1] != var.shape[0]:
+        # If they do not match, modify var to match the dimensions
+        missing_rows = X.shape[1] - var.shape[0]
+        additional_rows = pd.DataFrame(index=range(var.shape[0], X.shape[1]))
+        var = pd.concat([var, additional_rows])
+
     return AnnData(X, adata.obs, var, adata.uns, adata.obsm)
+
 
 def collapse_duplicate_genes(adata, stay_sparse=False):
     """Collapse duplicate genes by summing up counts to unique entries.
@@ -236,7 +286,8 @@ def collapse_duplicate_genes(adata, stay_sparse=False):
     adata.X = X if stay_sparse or not issparse(adata.X) else csr_matrix(X)
     return adata[:, np.delete(np.arange(adata.n_vars), idxs_to_remove)].copy()
 
-def translate(adata, target=None, stay_sparse=False, verbose=True):
+
+def translate(adata, target=None, stay_sparse=False, verbose=True, source='biomart'):
     """Translates adata.var between mouse and human using orthologs from biomart.
     Accepts either Ensembl or Symbol gene names as adata.var_names and can translate
     to either Ensembl or Symbol gene names. If the target is None, translates
@@ -257,7 +308,12 @@ def translate(adata, target=None, stay_sparse=False, verbose=True):
     AnnData object
         The adata with translated and unique features.
     """
-    direct, multiple, no_hit, no_index = check_orthologs(adata.var_names, tab=None, target=target, verbose=verbose)
+    source_lower = source.lower()
+
+    if source_lower not in ['hcop', 'biomart']:
+        raise ValueError('source must be either "HCOP" or "biomart"')
+
+    direct, multiple, no_hit, no_index = check_orthologs(adata.var_names, tab=None, target=target, verbose=verbose, source=source_lower)
     if verbose:
         print('Found direct orthologs for {} genes.'.format(len(direct)))
         print('Found multiple orthologs for {} genes.'.format(len(multiple)))
