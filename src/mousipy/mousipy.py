@@ -4,7 +4,7 @@ from re import search
 import numpy as np
 import pandas as pd
 from anndata import AnnData
-from scipy.sparse import csr_matrix, issparse
+from scipy.sparse import csr_matrix, issparse, lil_matrix
 from tqdm import tqdm
 
 # Biomart tables
@@ -193,7 +193,8 @@ def translate_multiple(adata, original_data, multiple, stay_sparse=False, verbos
 
     if stay_sparse:
         # Sparse implementation remains unchanged
-        X = adata.X.copy()
+        X = adata.X.copy().tolil()
+
         for mgene, hgenes in (tqdm(multiple.items()) if verbose else multiple.items()):
             mgene_data = make_dense(original_data[:, mgene].X)
 
@@ -204,11 +205,18 @@ def translate_multiple(adata, original_data, multiple, stay_sparse=False, verbos
                     new_row['original_gene_symbol'] = 'multiple'
                     var = pd.concat([var, new_row])
 
-                    X = csr_matrix(np.hstack((X.toarray(), mgene_data.reshape(-1, 1))))
+                    # Convert X to dense, add new column, and convert back to LIL
+                    X_dense = X.toarray()
+                    X_dense = np.hstack((X_dense, mgene_data.reshape(-1, 1)))
+                    X = lil_matrix(X_dense)
                     ortholog_indices[hgene] = X.shape[1] - 1
                 else:
                     idx = ortholog_indices[hgene]
-                    X[:, idx] += csr_matrix(mgene_data).reshape(-1, 1)
+                    # Update the column in the LIL matrix directly
+                    X[:, idx] += lil_matrix(mgene_data).reshape(-1, 1)
+
+        # Convert back to CSR format after modifications
+        X = X.tocsr()
     else:
         # Dense implementation
         num_new_genes = sum(1 for hgenes in multiple.values() for hgene in hgenes if hgene not in ortholog_indices)
