@@ -185,37 +185,51 @@ def translate_direct(adata, direct, no_index):
 
 
 def translate_multiple(adata, original_data, multiple, stay_sparse=False, verbose=False):
-    """Adds the counts of multiple-hit genes to ALL their orthologs.
-    Parameters
-    ----------
-    adata : AnnData
-        AnnData object to translate genes in.
-    original_data : AnnData
-        Original AnnData (before translate_direct).
-    multiple : dict
-        Dictionary of those adata genes mapping to many orthologs.
-
-    Returns
-    -------
-    AnnData
-        Updated original adata.
-    """
-    X = adata.X.copy() if stay_sparse else make_dense(adata.X).copy()
+    """Adds the counts of multiple-hit genes to ALL their orthologs in an optimized manner."""
+    # Ensure X is in the desired format from the start, reducing unnecessary conversions.
+    X = adata.X if stay_sparse else adata.X.toarray() if issparse(adata.X) else adata.X
     var = adata.var.copy()
-    fct = tqdm if verbose else lambda x: x
-    for mgene, hgenes in fct(multiple.items()):
+
+    # Prepare for efficient updates
+    new_genes = []  # To track genes not currently in `var`
+    gene_updates = {}  # To aggregate updates before applying them
+
+    # Use tqdm for verbose mode
+    iterator = tqdm(multiple.items()) if verbose else multiple.items()
+
+    for mgene, hgenes in iterator:
+        mgene_data = original_data[:, mgene].X.toarray().flatten() if issparse(original_data[:, mgene].X) else original_data[:, mgene].X
+
         for hgene in hgenes:
-            if hgene not in list(var.index):
-                # Add counts to new gene
-                X = np.hstack((X, make_dense(original_data[:, mgene].X)))
-                var.loc[hgene] = None
-                var.loc[hgene, 'original_gene_symbol'] = 'multiple'
+            if hgene not in var.index:
+                # Prepare to add a new gene
+                new_genes.append(hgene)
+                gene_updates[hgene] = mgene_data
             else:
-                # Add counts to existing gene
-                idx = np.where(np.array(list(var.index))==hgene)[0][0]
-                X[:, [idx]] += make_dense(original_data[:, mgene].X)
-    X = X if stay_sparse or not issparse(adata.X) else csr_matrix(X)
-    return AnnData(X, adata.obs, var, adata.uns, adata.obsm)
+                # Aggregate updates for existing genes
+                if hgene in gene_updates:
+                    gene_updates[hgene] += mgene_data
+                else:
+                    idx = np.where(var.index == hgene)[0][0]
+                    if stay_sparse:
+                        X[:, idx] += csr_matrix(mgene_data).transpose()
+                    else:
+                        X[:, idx] += mgene_data
+
+    # Efficiently handle new genes
+    if new_genes:
+        new_gene_matrix = np.array([gene_updates[hgene] for hgene in new_genes]).T
+        if stay_sparse:
+            new_gene_matrix = csr_matrix(new_gene_matrix)
+        X = np.hstack((X, new_gene_matrix)) if not stay_sparse else csr_matrix(np.hstack((X.toarray(), new_gene_matrix.toarray())))
+        new_var_entries = pd.DataFrame(index=new_genes)
+        new_var_entries['original_gene_symbol'] = 'multiple'
+        var = pd.concat([var, new_var_entries])
+
+    # Convert back to csr_matrix if originally sparse and requested to stay sparse
+    X_final = csr_matrix(X) if stay_sparse and not issparse(adata.X) else X
+
+    return AnnData(X_final, adata.obs, var, adata.uns, adata.obsm)
 
 
 def collapse_duplicate_genes(adata, stay_sparse=False):
