@@ -20,7 +20,7 @@ m2h_tab_hcop = pd.read_csv(os.path.join(path, './hcop/mouse_to_human.csv')).set_
 def make_dense(X):
     # robustly make an array dense
     if issparse(X):
-        return X.A
+        return X.toarray()
     else:
         return X
 
