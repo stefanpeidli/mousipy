@@ -41,5 +41,5 @@ Two genes in different species are called orthologs if they share a common ances
 
 # Cite as
 ```
-Stefan Peidli, ianfd, & pakiessling. (2025). stefanpeidli/mousipy: v0.1.7 (v0.1.7). Zenodo. https://doi.org/10.5281/zenodo.15631327
+Stefan Peidli, ianfd, & pakiessling. (2025). stefanpeidli/mousipy. Zenodo. https://doi.org/10.5281/zenodo.15631326
 ```
