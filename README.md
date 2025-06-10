@@ -4,7 +4,7 @@
 ![PyPI](https://img.shields.io/pypi/v/mousipy?label=PyPI%20version)
 
 # mousipy
-A python package that translates an AnnData single cell object from scanpy with mouse gene symbols into one with human gene symbols by mapping orthologs from biomart.
+A python package that translates an AnnData single cell object from scanpy with mouse gene symbols into one with human gene symbols by mapping orthologs from biomart. DOI: [10.5281/zenodo.15631327](https://doi.org/10.5281/zenodo.15631327)
 
 
 # Why?
@@ -37,5 +37,9 @@ First, for all mouse gene symbols in adata.var_names we check if there is an ort
 Two genes in different species are called orthologs if they share a common ancestry. At some point in the past these genes must have underwent a specification event.
 
 # Does it make a difference?
-TODO
 ![A delicious double pie plot should be here.](docs/img.png?raw=true "Double pie")
+
+# Cite as
+```
+Stefan Peidli, ianfd, & pakiessling. (2025). stefanpeidli/mousipy: v0.1.7 (v0.1.7). Zenodo. https://doi.org/10.5281/zenodo.15631327
+```
