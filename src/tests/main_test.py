@@ -42,6 +42,6 @@ def test_PBMC_hcop():
     adata = read("data/Pancreas/pbmc3k_raw.h5ad", backup_url=url)
     adata.var_names_make_unique()
 
-    mousified_adata = translate(adata, source='hcop')
+    mousified_adata = translate(adata, source='hcop', stay_sparse=True)
     assert mousified_adata.n_obs == adata.n_obs, "We lost cells during mapping, which should not happen!"
     assert mousified_adata.n_vars > 10000, "Very few genes (less than 10k) could be mapped! Expecting more!"
